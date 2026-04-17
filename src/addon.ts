@@ -8,7 +8,7 @@ import { request } from 'undici';
 import { pipeline } from 'stream/promises';
 const express = require('express');
 import { generateLandingPage } from './landing';
-
+ 
 // Map subtitle label names to BCP-47 language codes for HLS LANGUAGE attribute
 const LABEL_TO_LANG: Record<string, string> = {
     'arabic': 'ar', 'العربية': 'ar',
@@ -59,7 +59,7 @@ const LABEL_TO_LANG: Record<string, string> = {
     'ukrainian': 'uk', 'українська': 'uk',
     'vietnamese': 'vi', 'tiếng việt': 'vi',
 };
-
+ 
 function guessLangCode(label: string): string {
     const lower = label.toLowerCase().replace(/\s*\(.*$/, '').trim();
     if (LABEL_TO_LANG[lower]) return LABEL_TO_LANG[lower];
@@ -72,7 +72,7 @@ function guessLangCode(label: string): string {
     }
     return 'und';
 }
-
+ 
 const manifest = {
     id: 'org.selfstream.addon',
     version: '1.1.0',
@@ -85,13 +85,13 @@ const manifest = {
     idPrefixes: ['tmdb:', 'tt', 'kitsu:'],
     catalogs: []
 };
-
+ 
 const builder = new addonBuilder(manifest as any);
-
+ 
 // Stream handler that uses user config to decide which sources to query
 async function handleStream(type: string, id: string, userConfig: UserConfig): Promise<any[]> {
     const allStreams: any[] = [];
-
+ 
     try {
         // ── Kitsu (AnimeUnity/VixCloud) ──
         if (id && id.startsWith('kitsu:')) {
@@ -104,12 +104,12 @@ async function handleStream(type: string, id: string, userConfig: UserConfig): P
             }
             return allStreams;
         }
-
+ 
         if (type === 'movie' || type === 'series') {
             let tmdbId = id;
             let season: string | undefined;
             let episode: string | undefined;
-
+ 
             if (type === 'movie') {
                 if (id.startsWith('tmdb:')) {
                     tmdbId = id.split(':')[1];
@@ -126,7 +126,7 @@ async function handleStream(type: string, id: string, userConfig: UserConfig): P
                     episode = parts[2];
                 }
             }
-
+ 
             // Fetch localized title from TMDB once for all sources
             let mediaTitle = '';
             try {
@@ -146,7 +146,7 @@ async function handleStream(type: string, id: string, userConfig: UserConfig): P
                     mediaTitle = data?.title || data?.name || '';
                 }
             } catch { /* proceed without title */ }
-
+ 
             // ── VixSrc ──
             if (userConfig.vixEnabled) {
                 try {
@@ -160,7 +160,7 @@ async function handleStream(type: string, id: string, userConfig: UserConfig): P
                     console.error("[VixSrc] error:", err);
                 }
             }
-
+ 
             // ── CinemaCity ──
             if (userConfig.cinemacityEnabled) {
                 try {
@@ -178,26 +178,26 @@ async function handleStream(type: string, id: string, userConfig: UserConfig): P
     } catch (err) {
         console.error("Handler error:", err);
     }
-
+ 
     return allStreams;
 }
-
+ 
 builder.defineStreamHandler(async (args: any) => {
     let type = args.type;
     let id = args.id;
-
+ 
     if (typeof type === 'object' && type.id) {
         id = type.id;
         type = type.type;
     }
-
+ 
     console.log("Stream request (default config):", { type, id });
     const streams = await handleStream(type, id, DEFAULT_CONFIG);
     return { streams };
 });
-
+ 
 const addonInterface = builder.getInterface();
-
+ 
 const app = express();
 app.set('trust proxy', true);
 app.use((req: any, res: any, next: any) => {
@@ -206,31 +206,31 @@ app.use((req: any, res: any, next: any) => {
     res.setHeader('Access-Control-Allow-Methods', '*');
     next();
 });
-
+ 
 // ── Landing Page ──
 app.get('/', (req: any, res: any) => {
     const addonBase = getAddonBase(req);
     res.send(generateLandingPage(manifest, addonBase));
 });
-
+ 
 // ── Manifest (default config) ──
 app.get('/manifest.json', (req: any, res: any) => {
     res.json(manifest);
 });
-
+ 
 // ── Manifest (with user config) ──
 app.get('/:config/manifest.json', (req: any, res: any) => {
     res.json(manifest);
 });
-
+ 
 // ── Stream Endpoint: with user config ──
 app.get('/:config/stream/:type/:id.json', async (req: any, res: any) => {
     const { config: configToken, type, id } = req.params;
     const addonBase = getAddonBase(req);
     const userConfig = decodeConfig(configToken);
-
+ 
     console.log("Stream request (configured):", { type, id, userConfig });
-
+ 
     try {
         const streams = await handleStream(type, id, userConfig);
         const fixed = streams.map((s: any) => {
@@ -244,12 +244,12 @@ app.get('/:config/stream/:type/:id.json', async (req: any, res: any) => {
         res.status(500).json({ error: err?.message || 'Internal Error' });
     }
 });
-
+ 
 // ── Stream Endpoint: default config (backward compat) ──
 app.get('/stream/:type/:id.json', async (req: any, res: any) => {
     const { type, id } = req.params;
     const addonBase = getAddonBase(req);
-
+ 
     try {
         const streams = await handleStream(type, id, DEFAULT_CONFIG);
         const fixed = streams.map((s: any) => {
@@ -263,37 +263,37 @@ app.get('/stream/:type/:id.json', async (req: any, res: any) => {
         res.status(500).json({ error: err?.message || 'Internal Error' });
     }
 });
-
+ 
 // ── CinemaCity Lazy Proxy: resolves fresh CDN URL at playback time ──
 app.get('/proxy/cc/manifest.m3u8', async (req: any, res: any) => {
     try {
         const token = req.query.token;
         if (!token) return res.status(400).send('#EXTM3U\n# Missing token');
-
+ 
         let decoded: any;
         try {
             decoded = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'));
         } catch {
             return res.status(400).send('#EXTM3U\n# Invalid token');
         }
-
+ 
         const pageUrl = decoded?.page;
         if (!pageUrl) return res.status(400).send('#EXTM3U\n# Missing page URL');
-
+ 
         const season = decoded?.s || undefined;
         const episode = decoded?.e || undefined;
         const preferredLang = decoded?.lang || 'en';
-
+ 
         // Scrape the page NOW to get a fresh CDN URL
         const freshStream = await extractFreshStreamUrl(pageUrl, season, episode);
         if (!freshStream) {
             return res.status(502).send('#EXTM3U\n# Failed to resolve stream from CinemaCity');
         }
-
+ 
         const freshUrl = freshStream.url;
         const streamHeaders = freshStream.headers;
         const addonBase = getAddonBase(req);
-
+ 
         // If it's an HLS stream, fetch and rewrite it through the standard proxy
         if (freshUrl.includes('.m3u8')) {
             console.log(`[CC Proxy] Fetching HLS: ${freshUrl.substring(0, 80)}...`);
@@ -301,17 +301,17 @@ app.get('/proxy/cc/manifest.m3u8', async (req: any, res: any) => {
             if (statusCode !== 200) {
                 return res.status(502).send(`#EXTM3U\n# CDN error ${statusCode}`);
             }
-
+ 
             const text = await body.text();
-
+ 
             // If master playlist, pick only the best resolution variant
             if (text.includes('#EXT-X-STREAM-INF:')) {
                 const lines = text.split(/\r?\n/);
                 const mediaLines: string[] = [];
-
+ 
                 interface CCVariant { info: string; url: string; height: number; bandwidth: number; }
                 const variants: CCVariant[] = [];
-
+ 
                 for (let i = 0; i < lines.length; i++) {
                     const line = lines[i];
                     if (line.startsWith('#EXT-X-MEDIA:') && line.includes('URI=')) {
@@ -329,15 +329,14 @@ app.get('/proxy/cc/manifest.m3u8', async (req: any, res: any) => {
                         }
                     }
                 }
-
+ 
                 // Sort by resolution desc, then bandwidth desc — pick the best
                 variants.sort((a, b) => (b.height - a.height) || (b.bandwidth - a.bandwidth));
                 const best = variants[0] || null;
-
+ 
                 const result: string[] = ['#EXTM3U'];
-
+ 
                 // Rewrite audio/subtitle media lines — set preferred language as DEFAULT
-                // Find which track matches: preferred lang first, fallback to 'en', fallback to first
                 let defaultIdx = -1;
                 let enIdx = -1;
                 for (let mi = 0; mi < mediaLines.length; mi++) {
@@ -354,7 +353,7 @@ app.get('/proxy/cc/manifest.m3u8', async (req: any, res: any) => {
                 }
                 if (defaultIdx === -1) defaultIdx = enIdx;
                 if (defaultIdx === -1 && mediaLines.length > 0) defaultIdx = 0;
-
+ 
                 for (let mi = 0; mi < mediaLines.length; mi++) {
                     let ml = mediaLines[mi];
                     // Rewrite URI
@@ -371,12 +370,11 @@ app.get('/proxy/cc/manifest.m3u8', async (req: any, res: any) => {
                     }
                     result.push(ml);
                 }
-
+ 
                 // Only include the best variant
                 if (best) {
                     const absUrl = resolveUrl(freshUrl, best.url);
                     const variantToken = makeProxyToken(absUrl, streamHeaders, 30 * 60 * 1000);
-                    // Add SUBTITLES group ref if we have subtitles
                     const subtitles = freshStream.subtitles || [];
                     let variantInfo = best.info;
                     if (subtitles.length > 0) {
@@ -385,11 +383,10 @@ app.get('/proxy/cc/manifest.m3u8', async (req: any, res: any) => {
                     result.push(variantInfo);
                     result.push(`${addonBase}/proxy/hls/manifest.m3u8?token=${variantToken}`);
                     console.log(`[CC Proxy] Best variant: ${best.height}p, ${best.bandwidth}bps`);
-
+ 
                     // Inject VTT subtitle tracks as EXT-X-MEDIA TYPE=SUBTITLES
                     if (subtitles.length > 0) {
                         console.log(`[CC Proxy] Injecting ${subtitles.length} subtitle tracks`);
-                        // Find preferred subtitle — no fallback: if not found, all subs stay DEFAULT=NO
                         let defaultSubIdx = -1;
                         for (let si = 0; si < subtitles.length; si++) {
                             const subLabel = subtitles[si].label.toLowerCase();
@@ -397,7 +394,7 @@ app.get('/proxy/cc/manifest.m3u8', async (req: any, res: any) => {
                                 if (defaultSubIdx === -1) defaultSubIdx = si;
                             }
                         }
-
+ 
                         for (let si = 0; si < subtitles.length; si++) {
                             const sub = subtitles[si];
                             const subToken = makeProxyToken(sub.url, streamHeaders, 30 * 60 * 1000);
@@ -407,12 +404,12 @@ app.get('/proxy/cc/manifest.m3u8', async (req: any, res: any) => {
                         }
                     }
                 }
-
+ 
                 res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
                 res.setHeader('Cache-Control', 'no-store');
                 return res.send(result.join('\n'));
             }
-
+ 
             // Media playlist: rewrite segments
             const lines = text.split(/\r?\n/);
             const result: string[] = [];
@@ -436,7 +433,7 @@ app.get('/proxy/cc/manifest.m3u8', async (req: any, res: any) => {
             res.setHeader('Cache-Control', 'no-store');
             return res.send(result.join('\n'));
         }
-
+ 
         // MP4 — redirect directly
         return res.redirect(302, freshUrl);
     } catch (e: any) {
@@ -444,37 +441,37 @@ app.get('/proxy/cc/manifest.m3u8', async (req: any, res: any) => {
         res.status(500).send('#EXTM3U\n# Internal error');
     }
 });
-
+ 
 // ── HLS Proxy: Master manifest rewriter (Synthetic FHD logic) ──
 app.get('/proxy/hls/manifest.m3u8', async (req: any, res: any) => {
     try {
         const token = req.query.token;
         if (!token) return res.status(400).send('#EXTM3U\n# Missing token');
-
+ 
         const decoded = decodeProxyToken(token);
         if (!decoded) return res.status(400).send('#EXTM3U\n# Invalid token');
-
+ 
         const upstream = decoded.u;
         const headers = decoded.h || {};
         const expire = decoded.e || 0;
-
+ 
         if (!upstream) return res.status(400).send('#EXTM3U\n# Missing upstream URL');
         if (expire && Date.now() > expire) return res.status(410).send('#EXTM3U\n# Token expired');
-
+ 
         console.log(`[HLS Proxy] Fetching: ${upstream.substring(0, 100)}...`);
-
+ 
         const { body, statusCode } = await request(upstream, { headers });
         if (statusCode !== 200) {
             return res.status(502).send(`#EXTM3U\n# Upstream error ${statusCode}`);
         }
-
+ 
         const text = await body.text();
         const addonBase = getAddonBase(req);
-
+ 
         // If it's a master playlist, filter for the best video quality
         if (text.includes('#EXT-X-STREAM-INF:')) {
             const lines = text.split(/\r?\n/);
-
+ 
             interface Variant {
                 info: string;
                 url: string;
@@ -484,7 +481,7 @@ app.get('/proxy/hls/manifest.m3u8', async (req: any, res: any) => {
             const variants: Variant[] = [];
             const mediaLines: string[] = [];
             const otherTags: string[] = [];
-
+ 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
                 if (line.startsWith('#EXT-X-MEDIA:')) {
@@ -492,36 +489,34 @@ app.get('/proxy/hls/manifest.m3u8', async (req: any, res: any) => {
                 } else if (line.startsWith('#EXT-X-STREAM-INF:')) {
                     const nextLine = lines[i + 1];
                     if (nextLine && !nextLine.startsWith('#')) {
-                        // Extract height and bandwidth
                         let height = 0;
                         let bandwidth = 0;
                         const hMatch = line.match(/RESOLUTION=\d+x(\d+)/i);
                         if (hMatch) height = parseInt(hMatch[1], 10);
                         const bMatch = line.match(/BANDWIDTH=(\d+)/i);
                         if (bMatch) bandwidth = parseInt(bMatch[1], 10);
-
+ 
                         variants.push({
                             info: line,
                             url: resolveUrl(upstream, nextLine.trim()),
                             height,
                             bandwidth
                         });
-                        i++; // skip original URL line
+                        i++;
                     }
                 } else if (line.startsWith('#') && !line.startsWith('#EXTINF')) {
                     if (line === '#EXTM3U') continue;
                     otherTags.push(line);
                 }
             }
-
+ 
             if (variants.length > 0) {
-                // Sort by resolution then bandwidth
                 variants.sort((a, b) => (b.height - a.height) || (b.bandwidth - a.bandwidth));
                 const best = variants[0];
-
+ 
                 const result = ['#EXTM3U'];
                 for (const tag of otherTags) result.push(tag);
-
+ 
                 // Rewrite media lines (audio/subs)
                 for (const ml of mediaLines) {
                     const rewritten = ml.replace(/URI="([^"]+)"/, (_match: string, uri: string) => {
@@ -531,19 +526,19 @@ app.get('/proxy/hls/manifest.m3u8', async (req: any, res: any) => {
                     });
                     result.push(rewritten);
                 }
-
+ 
                 // Add the best variant
                 const bestToken = makeProxyToken(best.url, headers);
                 result.push(best.info);
                 result.push(`${addonBase}/proxy/hls/manifest.m3u8?token=${bestToken}`);
-
+ 
                 res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
                 res.setHeader('Cache-Control', 'no-store');
                 return res.send(result.join('\n'));
             }
         }
-
-        // Media playlist or fallback (if no variants found): rewrite segment URLs
+ 
+        // Media playlist or fallback: rewrite segment URLs
         const lines = text.split(/\r?\n/);
         const result: string[] = [];
         for (const line of lines) {
@@ -570,7 +565,7 @@ app.get('/proxy/hls/manifest.m3u8', async (req: any, res: any) => {
         res.status(500).send('#EXTM3U\n# Internal error');
     }
 });
-
+ 
 /**
  * Some providers prepend a fake 8-byte PNG signature to TS segments.
  * Strip it only when bytes after the header still match TS sync markers.
@@ -580,47 +575,44 @@ function stripFakePngHeader(content: Buffer): Buffer {
     if (content.length <= 8 || !content.subarray(0, 8).equals(pngSig)) {
         return content;
     }
-
+ 
     const tsPayload = content.subarray(8);
-    // MPEG-TS sync byte is 0x47
     if (tsPayload.length === 0 || tsPayload[0] !== 0x47) {
         return content;
     }
     if (tsPayload.length > 188 && tsPayload[188] !== 0x47) {
         return content;
     }
-
+ 
     console.log(`[HLS Proxy] Removed fake PNG header from TS segment (${content.length} -> ${tsPayload.length} bytes)`);
     return tsPayload;
 }
-
+ 
 // ── HLS Proxy: segment proxy (streaming with backpressure) ──
 app.get('/proxy/hls/segment.ts', async (req: any, res: any) => {
     try {
         const token = req.query.token;
         if (!token) return res.status(400).send('Missing token');
-
+ 
         const decoded = decodeProxyToken(token);
         if (!decoded) return res.status(400).send('Invalid token');
-
+ 
         const upstream = decoded.u;
         const headers = decoded.h || {};
-
+ 
         if (!upstream) return res.status(400).send('Missing upstream URL');
-
+ 
         const { body, statusCode, headers: respHeaders } = await request(upstream, { headers });
         if (statusCode !== 200) {
             return res.status(statusCode || 502).send('Upstream error');
         }
-
+ 
         const contentType = respHeaders['content-type'] || 'video/mp2t';
         res.setHeader('Content-Type', contentType);
         res.setHeader('Cache-Control', 'public, max-age=3600');
-
-        // Stream with proper backpressure: CDN → player
+ 
         await pipeline(body, res);
     } catch (e: any) {
-        // AbortError / ERR_STREAM_PREMATURE_CLOSE = player disconnected, not a real error
         if (e?.code === 'ERR_STREAM_PREMATURE_CLOSE' || e?.name === 'AbortError') return;
         console.error('[HLS Segment Proxy] error:', e?.message || e);
         if (!res.headersSent) {
@@ -628,15 +620,14 @@ app.get('/proxy/hls/segment.ts', async (req: any, res: any) => {
         }
     }
 });
-
-// Subtitle m3u8 wrapper — HLS requires subtitles as a media playlist, not raw VTT
+ 
+// Subtitle m3u8 wrapper
 app.get('/proxy/hls/subtitle.m3u8', async (req: any, res: any) => {
     try {
         const token = req.query.token;
         if (!token) return res.status(400).send('#EXTM3U\n# Missing token');
-
+ 
         const addonBase = getAddonBase(req);
-        // Return a simple HLS media playlist that references the VTT file
         const playlist = [
             '#EXTM3U',
             '#EXT-X-TARGETDURATION:86400',
@@ -647,7 +638,7 @@ app.get('/proxy/hls/subtitle.m3u8', async (req: any, res: any) => {
             `${addonBase}/proxy/hls/subtitle.vtt?token=${token}`,
             '#EXT-X-ENDLIST'
         ].join('\n');
-
+ 
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
         res.setHeader('Cache-Control', 'public, max-age=3600');
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -657,27 +648,26 @@ app.get('/proxy/hls/subtitle.m3u8', async (req: any, res: any) => {
         if (!res.headersSent) res.status(500).send('#EXTM3U\n# Internal error');
     }
 });
-
-// VTT subtitle proxy — fetches remote VTT, injects X-TIMESTAMP-MAP for HLS sync
+ 
+// VTT subtitle proxy
 app.get('/proxy/hls/subtitle.vtt', async (req: any, res: any) => {
     try {
         const token = req.query.token;
         if (!token) return res.status(400).send('Missing token');
-
+ 
         const decoded = decodeProxyToken(token);
         if (!decoded) return res.status(400).send('Invalid token');
-
+ 
         const upstream = decoded.u;
         const headers = decoded.h || {};
-
+ 
         if (!upstream) return res.status(400).send('Missing upstream URL');
-
+ 
         const { body, statusCode } = await request(upstream, { headers });
         if (statusCode !== 200) {
             return res.status(statusCode || 502).send('Upstream error');
         }
-
-        // Read full VTT and inject X-TIMESTAMP-MAP for HLS synchronization
+ 
         let vttText = await body.text();
         if (vttText.startsWith('WEBVTT') && !vttText.includes('X-TIMESTAMP-MAP')) {
             vttText = vttText.replace(
@@ -685,7 +675,7 @@ app.get('/proxy/hls/subtitle.vtt', async (req: any, res: any) => {
                 'WEBVTT$1$2X-TIMESTAMP-MAP=MPEGTS:900000,LOCAL:00:00:00.000$2'
             );
         }
-
+ 
         res.setHeader('Content-Type', 'text/vtt');
         res.setHeader('Cache-Control', 'public, max-age=3600');
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -698,13 +688,23 @@ app.get('/proxy/hls/subtitle.vtt', async (req: any, res: any) => {
         }
     }
 });
-
+ 
 export default app;
-
+ 
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
     const port = process.env.PORT || 7000;
     app.listen(port, () => {
         console.log(`SelfStream running at http://127.0.0.1:${port}`);
         console.log(`Manifest: http://127.0.0.1:${port}/manifest.json`);
+ 
+        // Keep-alive: ping ogni 25 minuti per evitare che lo Space HF si addormenti
+        const baseUrl = process.env.SPACE_HOST
+            ? `https://${process.env.SPACE_HOST}`
+            : `http://127.0.0.1:${port}`;
+        setInterval(() => {
+            fetch(`${baseUrl}/manifest.json`)
+                .then(() => console.log('[Keep-alive] ping OK'))
+                .catch(() => {});
+        }, 25 * 60 * 1000);
     });
 }

@@ -8,17 +8,16 @@ import { request } from 'undici';
 import { pipeline } from 'stream/promises';
 const express = require('express');
 import { generateLandingPage } from './landing';
- 
 // ── Redis Cache (Upstash) ──────────────────────────────────────────────────────
-const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL  || '';
+const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL   || '';
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
-const CACHE_TTL   = 60 * 60; // 1 ora in secondi
+const CACHE_TTL   = 60 * 60; // 1 ora
  
 async function redisGet(key: string): Promise<any | null> {
     if (!REDIS_URL || !REDIS_TOKEN) return null;
     try {
         const res = await fetch(`${REDIS_URL}/get/${encodeURIComponent(key)}`, {
-            headers: { Authorization: `Bearer ${REDIS_TOKEN}` }
+            headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
         });
         if (!res.ok) return null;
         const data = await res.json() as any;
@@ -27,15 +26,15 @@ async function redisGet(key: string): Promise<any | null> {
     } catch { return null; }
 }
  
-async function redisSet(key: string, value: any, ttl: number = CACHE_TTL): Promise<void> {
+async function redisSet(key: string, value: any, ttl = CACHE_TTL): Promise<void> {
     if (!REDIS_URL || !REDIS_TOKEN) return;
     try {
-        await fetch(`${REDIS_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(JSON.stringify(value))}?ex=${ttl}`, {
-            headers: { Authorization: `Bearer ${REDIS_TOKEN}` }
-        });
-    } catch { /* ignore cache errors */ }
+        await fetch(
+            `${REDIS_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(JSON.stringify(value))}?ex=${ttl}`,
+            { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } }
+        );
+    } catch { /* ignore */ }
 }
- 
  
  
 // Map subtitle label names to BCP-47 language codes for HLS LANGUAGE attribute
@@ -119,10 +118,7 @@ const builder = new addonBuilder(manifest as any);
  
 // Stream handler that uses user config to decide which sources to query
 async function handleStream(type: string, id: string, userConfig: UserConfig): Promise<any[]> {
-    // Cache key basata su type, id e config utente
     const cacheKey = `ss:${type}:${id}:${userConfig.vixEnabled}:${userConfig.cinemacityEnabled}`;
- 
-    // Controlla Redis prima di fare richieste
     const cached = await redisGet(cacheKey);
     if (cached) {
         console.log(`[Cache] REDIS HIT ${cacheKey}`);
@@ -218,7 +214,6 @@ async function handleStream(type: string, id: string, userConfig: UserConfig): P
         console.error("Handler error:", err);
     }
  
-        // Salva in Redis solo se abbiamo trovato stream
     if (allStreams.length > 0) {
         redisSet(cacheKey, allStreams).catch(() => {});
         console.log(`[Cache] REDIS SET ${cacheKey} streams: ${allStreams.length}`);
